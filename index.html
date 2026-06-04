@@ -3,52 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Scanner (Confirm Mode)</title>
+  <title>AI Scanner (Multi-Choice Mode)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; background-color: #f0f2f5; margin: 0;}
     .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
     h2 { color: #1a73e8; margin-bottom: 10px; }
-    #webcam-container canvas { width: 100%; max-width: 400px; border-radius: 12px; border: 4px solid #ddd; background-color: #000; transition: border 0.3s;}
-    #label-container { font-size: 24px; font-weight: bold; margin-top: 15px; color: #333; min-height: 35px;}
+    #webcam-container canvas { width: 100%; max-width: 400px; border-radius: 12px; border: 4px solid #1a73e8; background-color: #000; transition: border 0.3s;}
+    #label-container { font-size: 22px; font-weight: bold; margin-top: 15px; color: #333; min-height: 35px;}
     #status-container { font-size: 16px; margin-top: 5px; color: #666; margin-bottom: 20px;}
     
-    /* ปุ่มกดยืนยัน */
-    .button-group { display: none; gap: 10px; justify-content: center; margin-top: 10px; }
-    .btn { padding: 12px 25px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;}
-    .btn-confirm { background-color: #28a745; color: white; }
-    .btn-confirm:hover { background-color: #218838; }
-    .btn-rescan { background-color: #dc3545; color: white; }
-    .btn-rescan:hover { background-color: #c82333; }
+    /* โซนปุ่มตัวเลือกที่ AI พบ */
+    .button-group { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+    .btn-choice { padding: 14px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; background-color: #28a745; color: white; transition: 0.2s; text-align: center;}
+    .btn-choice:hover { background-color: #218838; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+    
+    /* ปุ่มถ่ายใหม่ */
+    .btn-rescan { padding: 12px; font-size: 16px; border: 1px solid #dc3545; border-radius: 8px; cursor: pointer; font-weight: bold; background-color: white; color: #dc3545; transition: 0.2s; margin-top: 15px;}
+    .btn-rescan:hover { background-color: #dc3545; color: white; }
     
     .scanning-active { border-color: #1a73e8 !important; }
-    .scanning-locked { border-color: #28a745 !important; }
+    .scanning-locked { border-color: #ffc107 !important; } /* สีส้มเตือนให้เลือก */
   </style>
 </head>
 <body>
   <div class="container">
     <h2>AI สแกนเลือกเมนู</h2>
-    <div id="label-container">กำลังโหลด...</div>
+    <div id="label-container">กำลังโหลดโมเดล...</div>
     <div id="status-container">กรุณารอสักครู่</div>
     
     <div id="webcam-container"></div>
 
-    <div id="ui-buttons" class="button-group">
-      <button class="btn btn-confirm" onclick="redirectToAppSheet()">✅ ตกลง, เข้าเมนูนี้</button>
-      <button class="btn btn-rescan" onclick="restartScanner()">🔄 ถ่ายใหม่</button>
-    </div>
+    <div id="choices-container" class="button-group"></div>
+    
+    <button id="rescanBtn" class="btn-rescan" style="display:none;" onclick="restartScanner()">🔄 ไม่ตรงเลย (สแกนใหม่)</button>
   </div>
 
   <script type="text/javascript">
-    // ลิงก์ AI โมเดลใหม่ล่าสุด
+    // ลิงก์โมเดลเวอร์ชันล่าสุดที่มี Background ของคุณ
     const URL = "https://teachablemachine.withgoogle.com/models/b1Y_KSH3u/";
-    // ไอดี AppSheet ของคุณ
     const appId = "e7fc27f0-a769-4a39-a6f0-6269f9081596";
     
     let model, webcam, maxPredictions;
     let isScanning = false;
-    let finalLabel = "";
 
     async function init() {
         try {
@@ -64,7 +62,7 @@
             document.getElementById("webcam-container").appendChild(webcam.canvas);
             document.getElementById("webcam-container").children[0].className = "scanning-active";
             document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์";
-            document.getElementById("status-container").innerText = "AI กำลังช่วยวิเคราะห์...";
+            document.getElementById("status-container").innerText = "AI กำลังวิเคราะห์วิดีโอสด...";
             
             isScanning = true;
             window.requestAnimationFrame(loop);
@@ -85,55 +83,89 @@
 
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
-        let highestProb = 0;
-        let bestLabel = "";
+        
+        // 1. คัดกรองเอาคลาส "Background" ออกไปก่อน แล้วเก็บวิเคราะห์เฉพาะคลาสเมนูงาน
+        let validPredictions = [];
+        let backgroundProb = 0;
         
         for (let i = 0; i < maxPredictions; i++) {
-            if(prediction[i].probability > highestProb) {
-                highestProb = prediction[i].probability;
-                bestLabel = prediction[i].className;
+            if (prediction[i].className === "Background") {
+                backgroundProb = prediction[i].probability;
+            } else {
+                validPredictions.push(prediction[i]);
             }
         }
 
-        // 🎯 ถ้ามั่นใจเกิน 85% และ "ไม่ใช่ Background" ให้หยุดวิดีโอและโชว์ปุ่มยืนยัน
-        if (highestProb > 0.85 && bestLabel !== "Background") {
-            isScanning = false; 
-            finalLabel = bestLabel;
+        // เรียงลำดับจากเปอร์เซ็นต์มากไปน้อย
+        validPredictions.sort((a, b) => b.probability - a.probability);
 
-            // ปรับ UI เป็นสีเขียวและโชว์ปุ่ม
+        // 2. เงื่อนไขการจับภาพ: ถ้าตัวเลือกอันดับ 1 มีคะแนนเกิน 50% (0.50) ให้ทำการล็อกหน้าจอเพื่อเลือก
+        if (validPredictions.length > 0 && validPredictions[0].probability > 0.50) {
+            isScanning = false; // หยุดสแกนชั่วคราว
+            webcam.stop();     // หยุดกล้อง
+
+            // เปลี่ยนสถานะ UI
             document.getElementById("webcam-container").children[0].className = "scanning-locked";
-            document.getElementById("label-container").innerText = "ตรวจพบ: " + bestLabel;
-            document.getElementById("status-container").innerText = "มั่นใจ: " + Math.round(highestProb * 100) + "%";
-            document.getElementById("ui-buttons").style.display = "flex"; 
+            document.getElementById("label-container").innerText = "พบตัวเลือกที่ใกล้เคียง 🤔";
+            document.getElementById("status-container").innerText = "กรุณากดเลือกเมนูที่ต้องการเข้าใช้งาน";
+
+            // 3. ค้นหาตัวเลือกอื่นๆ ที่ "เข้าเค้า" (คะแนนเกิน 15% ขึ้นไป) เพื่อสร้างปุ่มให้เลือก
+            let candidates = validPredictions.filter((p, index) => index === 0 || p.probability > 0.15);
             
-        } else if (highestProb > 0.85 && bestLabel === "Background") {
-            // 🎯 ถ้า AI มองเห็นแต่พื้นหลัง/ของทั่วไป (Background) ให้สแกนหาเมนูต่อไปเงียบๆ
-            document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์...";
-            document.getElementById("status-container").innerText = "กำลังสแกนหาเมนู...";
+            generateChoiceButtons(candidates);
         } else {
-            // กรณีความมั่นใจยังไม่ถึงเกณฑ์
-            document.getElementById("status-container").innerText = "กำลังค้นหา... (" + Math.round(highestProb * 100) + "%)";
+            // ถ้า AI มองเห็นแต่พื้นหลังทั่วไป
+            document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์...";
+            document.getElementById("status-container").innerText = "กำลังสแกน... (ระบบจะหยุดเมื่อพบสัญลักษณ์)";
         }
     }
 
-    // ฟังก์ชันกดยืนยันเพื่อไป AppSheet
-    function redirectToAppSheet() {
-        document.getElementById("ui-buttons").style.display = "none";
-        document.getElementById("status-container").innerText = "กำลังพาคุณไปที่หน้า: " + finalLabel;
+    // ฟังก์ชันสร้างปุ่มตัวเลือกแบบไดนามิกตามจำนวนที่ AI เจอ
+    function generateChoiceButtons(candidates) {
+        const container = document.getElementById("choices-container");
+        container.innerHTML = ""; // ล้างปุ่มเก่า
+
+        candidates.forEach(match => {
+            let pct = Math.round(match.probability * 100);
+            
+            // สร้างปุ่ม
+            let btn = document.createElement("button");
+            btn.className = "btn-choice";
+            btn.innerText = `📂 เข้าสู่เมนู: "${match.className}" (เข้าเค้า ${pct}%)`;
+            
+            // ผูกฟังก์ชันคลิก
+            btn.onclick = function() {
+                redirectToAppSheet(match.className);
+            };
+            
+            container.appendChild(btn);
+        });
+
+        // แสดงปุ่มสแกนใหม่
+        document.getElementById("rescanBtn").style.display = "block";
+    }
+
+    // ฟังก์ชันกดยืนยันตัวเลือกแล้วลิ้งค์กลับไป AppSheet
+    function redirectToAppSheet(targetMenu) {
+        document.getElementById("choices-container").innerHTML = "";
+        document.getElementById("rescanBtn").style.display = "none";
+        document.getElementById("label-container").innerText = "กำลังย้ายหน้าจอ...";
+        document.getElementById("status-container").innerText = "พาคุณไปที่เมนู: " + targetMenu;
         
-        let appSheetUrl = "https://www.appsheet.com/start/" + appId + "#control=" + encodeURIComponent(finalLabel);
+        let appSheetUrl = "https://www.appsheet.com/start/" + appId + "#control=" + encodeURIComponent(targetMenu);
         window.top.location.href = appSheetUrl;
     }
 
-    // ฟังก์ชันยกเลิกแล้วถ่ายใหม่
+    // ฟังก์ชันเริ่มสแกนใหม่อีกครั้ง
     function restartScanner() {
-        document.getElementById("ui-buttons").style.display = "none";
+        document.getElementById("choices-container").innerHTML = "";
+        document.getElementById("rescanBtn").style.display = "none";
         document.getElementById("webcam-container").children[0].className = "scanning-active";
         document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์อีกครั้ง";
-        document.getElementById("status-container").innerText = "AI กำลังเริ่มวิเคราะห์ใหม่...";
         
         isScanning = true;
         window.requestAnimationFrame(loop);
+        init(); // เปิดกล้องใหม่
     }
 
     window.onload = init;
