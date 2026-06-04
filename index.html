@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Scanner (Live)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f6f9; margin: 0;}
+    h2 { color: #333; }
+    #webcam-container canvas { width: 100%; max-width: 400px; border-radius: 12px; margin-top: 15px; border: 4px solid #1a73e8; background-color: #000;}
+    #label-container { font-size: 22px; font-weight: bold; margin-top: 20px; color: #1a73e8;}
+    #status-container { font-size: 16px; margin-top: 10px; color: #555;}
+  </style>
+</head>
+<body>
+  <h2>สแกนเพื่อเข้าเมนู</h2>
+  <div id="label-container">กำลังเปิดกล้อง... (กรุณากดอนุญาต)</div>
+  <div id="webcam-container"></div>
+  <div id="status-container">รอการวิเคราะห์</div>
+
+  <script type="text/javascript">
+    // ลิงก์ AI และ ไอดีแอปของคุณ
+    const URL = "https://teachablemachine.withgoogle.com/models/GJpS6qAE2/";
+    const appId = "e7fc27f0-a769-4a39-a6f0-6269f9081596";
+    
+    let model, webcam, maxPredictions;
+    let isScanning = false;
+
+    // 1. โหลด AI และเปิดกล้องอัตโนมัติ
+    async function init() {
+        try {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // เปิดกล้องหลัง (environment)
+            webcam = new tmImage.Webcam(400, 400, false);
+            await webcam.setup({ facingMode: "environment" }); 
+            await webcam.play();
+            
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์";
+            isScanning = true;
+            window.requestAnimationFrame(loop);
+            
+        } catch (error) {
+            document.getElementById("label-container").innerText = "เปิดกล้องไม่สำเร็จ";
+            document.getElementById("label-container").style.color = "red";
+            document.getElementById("status-container").innerText = "กรุณาตรวจสอบสิทธิ์กล้องในเบราว์เซอร์มือถือ";
+        }
+    }
+
+    // 2. ลูปสแกนวิดีโอสด
+    async function loop() {
+        if(isScanning) {
+           webcam.update();
+           await predict();
+           window.requestAnimationFrame(loop);
+        }
+    }
+
+    // 3. ทายผลและส่งค่ากลับ AppSheet
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        let highestProb = 0;
+        let bestLabel = "";
+        
+        for (let i = 0; i < maxPredictions; i++) {
+            if(prediction[i].probability > highestProb) {
+                highestProb = prediction[i].probability;
+                bestLabel = prediction[i].className;
+            }
+        }
+
+        // 🎯 ถ้ามั่นใจเกิน 80% ให้ล็อกผลทันที
+        if (highestProb > 0.80) {
+            isScanning = false; // หยุดวิเคราะห์
+            webcam.stop(); // ปิดกล้อง
+
+            document.getElementById("label-container").innerText = "ตรวจพบ: " + bestLabel;
+            document.getElementById("label-container").style.color = "green";
+            document.getElementById("status-container").innerText = "กำลังพาไปที่หน้าเมนู...";
+            
+            // กระโดดกลับไปที่เมนูใน AppSheet
+            let appSheetUrl = "https://www.appsheet.com/start/" + appId + "#control=" + encodeURIComponent(bestLabel);
+            window.top.location.href = appSheetUrl;
+            
+        } else {
+            // โชว์ความมั่นใจเรียลไทม์
+            document.getElementById("status-container").innerText = "กำลังวิเคราะห์... (" + Math.round(highestProb * 100) + "%)";
+        }
+    }
+
+    // สั่งทำงานทันทีที่โหลดเว็บเสร็จ
+    window.onload = init;
+  </script>
+</body>
+</html>
