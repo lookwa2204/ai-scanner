@@ -41,7 +41,9 @@
   </div>
 
   <script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/GJpS6qAE2/";
+    // ลิงก์ AI โมเดลใหม่ล่าสุด
+    const URL = "https://teachablemachine.withgoogle.com/models/b1Y_KSH3u/";
+    // ไอดี AppSheet ของคุณ
     const appId = "e7fc27f0-a769-4a39-a6f0-6269f9081596";
     
     let model, webcam, maxPredictions;
@@ -93,17 +95,23 @@
             }
         }
 
-        // 🎯 ถ้า AI มั่นใจเกิน 80% ให้หยุดดูผลก่อน
-        if (highestProb > 0.85) {
-            isScanning = false; // หยุดวิเคราะห์ชั่วคราว
+        // 🎯 ถ้ามั่นใจเกิน 85% และ "ไม่ใช่ Background" ให้หยุดวิดีโอและโชว์ปุ่มยืนยัน
+        if (highestProb > 0.85 && bestLabel !== "Background") {
+            isScanning = false; 
             finalLabel = bestLabel;
 
-            // ปรับ UI
+            // ปรับ UI เป็นสีเขียวและโชว์ปุ่ม
             document.getElementById("webcam-container").children[0].className = "scanning-locked";
             document.getElementById("label-container").innerText = "ตรวจพบ: " + bestLabel;
             document.getElementById("status-container").innerText = "มั่นใจ: " + Math.round(highestProb * 100) + "%";
-            document.getElementById("ui-buttons").style.display = "flex"; // โชว์ปุ่มยืนยัน
+            document.getElementById("ui-buttons").style.display = "flex"; 
+            
+        } else if (highestProb > 0.85 && bestLabel === "Background") {
+            // 🎯 ถ้า AI มองเห็นแต่พื้นหลัง/ของทั่วไป (Background) ให้สแกนหาเมนูต่อไปเงียบๆ
+            document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์...";
+            document.getElementById("status-container").innerText = "กำลังสแกนหาเมนู...";
         } else {
+            // กรณีความมั่นใจยังไม่ถึงเกณฑ์
             document.getElementById("status-container").innerText = "กำลังค้นหา... (" + Math.round(highestProb * 100) + "%)";
         }
     }
