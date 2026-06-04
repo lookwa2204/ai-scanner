@@ -93,8 +93,8 @@
             }
         }
 
-        // 🎯 ถ้ามั่นใจเกิน 85% และ "ไม่ใช่ Background" ให้หยุดวิดีโอและโชว์ปุ่มยืนยัน
-        if (highestProb > 0.85 && bestLabel !== "Background") {
+        // 🎯 ถ้ามั่นใจเกิน 95% และ "ไม่ใช่ Background" ให้หยุดวิดีโอและโชว์ปุ่มยืนยัน
+        if (highestProb > 0.95 && bestLabel !== "Background") {
             isScanning = false; 
             finalLabel = bestLabel;
 
@@ -103,7 +103,7 @@
             document.getElementById("status-container").innerText = "มั่นใจ: " + Math.round(highestProb * 100) + "%";
             document.getElementById("ui-buttons").style.display = "flex"; 
             
-        } else if (highestProb > 0.85 && bestLabel === "Background") {
+        } else if (highestProb > 0.95 && bestLabel === "Background") {
             // ถ้า AI มองเห็นแต่พื้นหลัง/ของทั่วไป ให้สแกนหาเมนูต่อไปเงียบๆ
             document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์...";
             document.getElementById("status-container").innerText = "กำลังสแกนหาเมนู...";
