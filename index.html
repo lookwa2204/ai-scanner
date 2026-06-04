@@ -3,32 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Scanner (Live)</title>
+  <title>AI Scanner (Confirm Mode)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f6f9; margin: 0;}
-    h2 { color: #333; }
-    #webcam-container canvas { width: 100%; max-width: 400px; border-radius: 12px; margin-top: 15px; border: 4px solid #1a73e8; background-color: #000;}
-    #label-container { font-size: 22px; font-weight: bold; margin-top: 20px; color: #1a73e8;}
-    #status-container { font-size: 16px; margin-top: 10px; color: #555;}
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; background-color: #f0f2f5; margin: 0;}
+    .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    h2 { color: #1a73e8; margin-bottom: 10px; }
+    #webcam-container canvas { width: 100%; max-width: 400px; border-radius: 12px; border: 4px solid #ddd; background-color: #000; transition: border 0.3s;}
+    #label-container { font-size: 24px; font-weight: bold; margin-top: 15px; color: #333; min-height: 35px;}
+    #status-container { font-size: 16px; margin-top: 5px; color: #666; margin-bottom: 20px;}
+    
+    /* ปุ่มกดยืนยัน */
+    .button-group { display: none; gap: 10px; justify-content: center; margin-top: 10px; }
+    .btn { padding: 12px 25px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;}
+    .btn-confirm { background-color: #28a745; color: white; }
+    .btn-confirm:hover { background-color: #218838; }
+    .btn-rescan { background-color: #dc3545; color: white; }
+    .btn-rescan:hover { background-color: #c82333; }
+    
+    .scanning-active { border-color: #1a73e8 !important; }
+    .scanning-locked { border-color: #28a745 !important; }
   </style>
 </head>
 <body>
-  <h2>สแกนเพื่อเข้าเมนู</h2>
-  <div id="label-container">กำลังเปิดกล้อง... (กรุณากดอนุญาต)</div>
-  <div id="webcam-container"></div>
-  <div id="status-container">รอการวิเคราะห์</div>
+  <div class="container">
+    <h2>AI สแกนเลือกเมนู</h2>
+    <div id="label-container">กำลังโหลด...</div>
+    <div id="status-container">กรุณารอสักครู่</div>
+    
+    <div id="webcam-container"></div>
+
+    <div id="ui-buttons" class="button-group">
+      <button class="btn btn-confirm" onclick="redirectToAppSheet()">✅ ตกลง, เข้าเมนูนี้</button>
+      <button class="btn btn-rescan" onclick="restartScanner()">🔄 ถ่ายใหม่</button>
+    </div>
+  </div>
 
   <script type="text/javascript">
-    // ลิงก์ AI และ ไอดีแอปของคุณ
     const URL = "https://teachablemachine.withgoogle.com/models/GJpS6qAE2/";
     const appId = "e7fc27f0-a769-4a39-a6f0-6269f9081596";
     
     let model, webcam, maxPredictions;
     let isScanning = false;
+    let finalLabel = "";
 
-    // 1. โหลด AI และเปิดกล้องอัตโนมัติ
     async function init() {
         try {
             const modelURL = URL + "model.json";
@@ -36,24 +55,24 @@
             model = await tmImage.load(modelURL, metadataURL);
             maxPredictions = model.getTotalClasses();
 
-            // เปิดกล้องหลัง (environment)
             webcam = new tmImage.Webcam(400, 400, false);
             await webcam.setup({ facingMode: "environment" }); 
             await webcam.play();
             
             document.getElementById("webcam-container").appendChild(webcam.canvas);
+            document.getElementById("webcam-container").children[0].className = "scanning-active";
             document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์";
+            document.getElementById("status-container").innerText = "AI กำลังช่วยวิเคราะห์...";
+            
             isScanning = true;
             window.requestAnimationFrame(loop);
             
         } catch (error) {
             document.getElementById("label-container").innerText = "เปิดกล้องไม่สำเร็จ";
-            document.getElementById("label-container").style.color = "red";
-            document.getElementById("status-container").innerText = "กรุณาตรวจสอบสิทธิ์กล้องในเบราว์เซอร์มือถือ";
+            document.getElementById("status-container").innerText = "กรุณาตรวจสอบสิทธิ์กล้อง";
         }
     }
 
-    // 2. ลูปสแกนวิดีโอสด
     async function loop() {
         if(isScanning) {
            webcam.update();
@@ -62,7 +81,6 @@
         }
     }
 
-    // 3. ทายผลและส่งค่ากลับ AppSheet
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
         let highestProb = 0;
@@ -75,26 +93,41 @@
             }
         }
 
-        // 🎯 ถ้ามั่นใจเกิน 80% ให้ล็อกผลทันที
-        if (highestProb > 0.80) {
-            isScanning = false; // หยุดวิเคราะห์
-            webcam.stop(); // ปิดกล้อง
+        // 🎯 ถ้า AI มั่นใจเกิน 80% ให้หยุดดูผลก่อน
+        if (highestProb > 0.85) {
+            isScanning = false; // หยุดวิเคราะห์ชั่วคราว
+            finalLabel = bestLabel;
 
+            // ปรับ UI
+            document.getElementById("webcam-container").children[0].className = "scanning-locked";
             document.getElementById("label-container").innerText = "ตรวจพบ: " + bestLabel;
-            document.getElementById("label-container").style.color = "green";
-            document.getElementById("status-container").innerText = "กำลังพาไปที่หน้าเมนู...";
-            
-            // กระโดดกลับไปที่เมนูใน AppSheet
-            let appSheetUrl = "https://www.appsheet.com/start/" + appId + "#control=" + encodeURIComponent(bestLabel);
-            window.top.location.href = appSheetUrl;
-            
+            document.getElementById("status-container").innerText = "มั่นใจ: " + Math.round(highestProb * 100) + "%";
+            document.getElementById("ui-buttons").style.display = "flex"; // โชว์ปุ่มยืนยัน
         } else {
-            // โชว์ความมั่นใจเรียลไทม์
-            document.getElementById("status-container").innerText = "กำลังวิเคราะห์... (" + Math.round(highestProb * 100) + "%)";
+            document.getElementById("status-container").innerText = "กำลังค้นหา... (" + Math.round(highestProb * 100) + "%)";
         }
     }
 
-    // สั่งทำงานทันทีที่โหลดเว็บเสร็จ
+    // ฟังก์ชันกดยืนยันเพื่อไป AppSheet
+    function redirectToAppSheet() {
+        document.getElementById("ui-buttons").style.display = "none";
+        document.getElementById("status-container").innerText = "กำลังพาคุณไปที่หน้า: " + finalLabel;
+        
+        let appSheetUrl = "https://www.appsheet.com/start/" + appId + "#control=" + encodeURIComponent(finalLabel);
+        window.top.location.href = appSheetUrl;
+    }
+
+    // ฟังก์ชันยกเลิกแล้วถ่ายใหม่
+    function restartScanner() {
+        document.getElementById("ui-buttons").style.display = "none";
+        document.getElementById("webcam-container").children[0].className = "scanning-active";
+        document.getElementById("label-container").innerText = "เล็งไปที่ภาพสัญลักษณ์อีกครั้ง";
+        document.getElementById("status-container").innerText = "AI กำลังเริ่มวิเคราะห์ใหม่...";
+        
+        isScanning = true;
+        window.requestAnimationFrame(loop);
+    }
+
     window.onload = init;
   </script>
 </body>
